@@ -1,169 +1,114 @@
 import sqlite3
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, List, Optional
 from uuid import uuid4
 
-from errors import DuplicateError
-from models import (Conversation, ConversationWithMessagesWithResults,
-                    MessageWithResults, Result, Session, TableSchema,
-                    TableSchemaField, UnsavedResult)
+from postgrest.exceptions import APIError
 
-# Old way of using database - this is a single connection, hard to manage transactions
-conn = sqlite3.connect("db.sqlite3", check_same_thread=False)
-
-
-class DatabaseManager:
-    def __init__(self, db_file="db.sqlite3"):
-        self.db_file = db_file
-        self.connection = None
-
-    def __enter__(self):
-        self.connection = sqlite3.connect(self.db_file)
-        return self.connection
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        if self.connection:
-            self.connection.close()
+from auth import Client
+from errors import DuplicateError, InsertError, NotFoundError, UpdateError
+from models import (Connection, Conversation,
+                    ConversationWithMessagesWithResults, MessageWithResults,
+                    Result, TableSchema, TableSchemaField, UnsavedResult)
 
 
-# SESSIONS: Create table to store session_id and dsn with unique constraint on session_id and dsn and not null
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS sessions (
-        session_id text PRIMARY KEY,
-        dsn text UNIQUE NOT NULL,
-        database text NOT NULL,
-        name text,
-        dialect text,
-        UNIQUE (session_id, dsn))"""
-)
-
-# SCHEMA TABLE: Create table to store table names in the schema with a reference to a session
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS schema_tables (
-    session_id text NOT NULL,
-    id text PRIMARY KEY,
-    name text NOT NULL,
-    description text NOT NULL,
-    FOREIGN KEY(session_id) REFERENCES sessions(session_id))"""
-)
-
-# SCHEMA FIELDS: Create table to store a reference to a table schema, table reference, field name, field type ('table' or 'field'), and a field description (text) with a reference to a session
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS schema_fields (id text PRIMARY KEY,
-    table_id text NOT NULL,
-    name text NOT NULL,
-    type text NOT NULL,
-    description text NOT NULL,
-    is_primary_key boolean NOT NULL DEFAULT 0,
-    is_foreign_key boolean NOT NULL DEFAULT 0,
-    foreign_table text NOT NULL DEFAULT '',
-    FOREIGN KEY(table_id) REFERENCES schema_tables(table_id))"""
-)
-
-# MESSAGES: Create table to store messages with text, role, and session_id
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS messages (message_id integer PRIMARY KEY AUTOINCREMENT, content text NOT NULL, role text NOT NULL, created_at text, selected_tables text NOT NULL DEFAULT '')"""
-)
-
-# RESULTS: Create table to store results with a result text field with a reference to a session
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS results (result_id integer PRIMARY KEY AUTOINCREMENT, content text NOT NULL, type text NOT NULL, created_at text)"""
-)
-
-# SAVED_QUERIES: Create many to many table to store saved queries with a reference to a result
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS saved_queries (result_id integer NOT NULL, name text, description text, FOREIGN KEY(result_id) REFERENCES results(result_id))"""
-)
-
-# MESSAGE_RESULTS: Create many to many table to store message with multiple results
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS message_results (message_id integer NOT NULL, result_id integer NOT NULL, FOREIGN KEY(message_id) REFERENCES messages(message_id), FOREIGN KEY(result_id) REFERENCES results(result_id))"""
-)
-
-# CONVERSATIONS: Create table to store conversations with a reference to a session, and many results, and a datetime field
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS conversations (conversation_id integer PRIMARY KEY AUTOINCREMENT, session_id text NOT NULL, name text NOT NULL, created_at text, FOREIGN KEY(session_id) REFERENCES sessions(session_id))"""
-)
-
-# CONVERSATION_MESSAGES: Create many to many table to store conversation with multiple messages with order
-conn.execute(
-    """CREATE TABLE IF NOT EXISTS conversation_messages (conversation_id integer NOT NULL, message_id integer NOT NULL, FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id), FOREIGN KEY(message_id) REFERENCES messages(message_id))"""
-)
-
-
-def create_session(
-    conn: sqlite3.Connection,
+def create_connection(
+    supabase: Client,
     dsn: str,
     database: str,
     name: str = "",
     dialect: str = "",
-) -> str:
-    # Check if session_id or dsn already exist
-    session_id = uuid4().hex
-
-    conn.execute(
-        "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-        (session_id, dsn, database, name, dialect),
+) -> Connection:
+    # Check if already exists
+    data = (
+        supabase.table(Connection.Config.table_name)
+        .select("id")
+        .eq("dsn", dsn)
+        .execute()
     )
-    return session_id
+    if len(data.data) > 0:
+        raise DuplicateError("Connection already exists")
 
-
-def get_session(conn: sqlite3.Connection, session_id: str):
-    session = conn.execute(
-        "SELECT session_id, name, dsn, database, dialect FROM sessions WHERE session_id = ?",
-        (session_id,),
-    ).fetchone()
-    if not session:
-        raise Exception("Session not found")
-
-    return Session(
-        session_id=session[0],
-        name=session[1],
-        dsn=session[2],
-        database=session[3],
-        dialect=session[4],
+    # Create new connection
+    connection_id = str(uuid4())
+    connection = Connection(
+        name=name, database=database, id=connection_id, dsn=dsn, dialect=dialect
     )
+    try:
+        serialized_session = dict(connection)
+        (
+            supabase.table(Connection.Config.table_name)
+            .insert(serialized_session)
+            .execute()
+        )
+    except APIError as e:
+        raise InsertError(e)
+    return connection
 
 
-def update_session(session_id: str, name: str, dsn: str, database: str, dialect: str):
-    conn.execute(
-        "UPDATE sessions SET name = ?, dsn = ?, database = ?, dialect = ? WHERE session_id = ?",
-        (name, dsn, database, dialect, session_id),
+def get_session(supabase: Client, session_id: str):
+    data = supabase.table(Connection.__tablename__).select("*").execute()
+    if len(data.data) > 0:
+        return Connection(data.data[0])
+
+    raise NotFoundError("session not found")
+
+
+def update_connection(
+    supabase: Client, connection_id: str, name: str, dsn: str, database: str, dialect: str
+) -> None:
+    """Updates a session. Raises APIError if update fails."""
+    try:
+        (
+            supabase.table(Connection.Config.table_name)
+            .update(dict(name=name, dsn=dsn, database=database, dialect=dialect))
+            .eq("id", connection_id)
+            .execute()
+        )
+    except APIError as e:
+        raise UpdateError(e.message)
+
+
+def get_connection_from_dsn(supabase: Client, dsn: str) -> Optional[str]:
+    """Returns a connection_id from a dsn"""
+    data = supabase.table(Connection.Config.table_name).select("id").eq("dsn", dsn).execute()
+    if len(data.data) > 0:
+        return str(data.data[0]["id"])
+    return None
+
+
+def get_connections(supabase: Client) -> List[Connection]:
+    data = supabase.table(Connection.Config.table_name).select("*").execute()
+    return [Connection(**connection) for connection in data.data]
+
+
+def exists_schema_table(supabase: Client, session_id: str):
+    data = (
+        supabase.table("schema_tables")
+        .select("*")
+        .eq("session_id", session_id)
+        .execute()
     )
-    conn.commit()
-    return True
-
-
-def get_session_from_dsn(dsn: str):
-    return conn.execute("SELECT * FROM sessions WHERE dsn = ?", (dsn,)).fetchone()
-
-
-def get_sessions():
-    return [
-        Session(session_id=x[0], name=x[1], dsn=x[2], database=x[3], dialect=x[4])
-        for x in conn.execute(
-            "SELECT session_id, name, dsn, database, dialect FROM sessions"
-        ).fetchall()
-    ]
-
-
-def exists_schema_table(session_id: str):
-    result = conn.execute(
-        "SELECT * FROM schema_tables WHERE session_id = ?", (session_id,)
-    ).fetchone()
-    if result:
+    if len(data.data) > 0:
         return True
     return False
 
 
-def create_schema_table(conn: sqlite3.Connection, session_id: str, table_name: str):
+def create_schema_table(supabase: Client, session_id: str, table_name: str):
     """Creates a table schema for a session"""
     # Check if table already exists
-    if conn.execute(
-        "SELECT * FROM schema_tables WHERE session_id = ? AND name = ?",
-        (session_id, table_name),
-    ).fetchone():
-        raise DuplicateError("Table already exists")
+    # if conn.execute(
+    #     "SELECT * FROM schema_tables WHERE session_id = ? AND name = ?",
+    #     (session_id, table_name),
+    # ).fetchone():
+    #     raise DuplicateError("Table already exists")
+    data = (
+        supabase.table("schema_tables")
+        .select("*")
+        .eq("session_id", session_id)
+        .eq("name", table_name)
+        .execute()
+    )
 
     # Insert table with UUID for ID
     table_id = uuid4().hex

@@ -6,9 +6,10 @@ from typing import Any, TypedDict
 from sqlalchemy import MetaData, create_engine, inspect
 
 import db
+from auth import Client
 from context_builder import CustomSQLContextContainerBuilder
 from errors import GenerationError, RelatedTablesNotFoundError
-from models import Session, SQLQueryResult, TableField, UnsavedResult
+from models import Connection, SQLQueryResult, TableField, UnsavedResult
 from query_manager import SQLQueryManager
 from sql_wrapper import CustomSQLDatabase
 
@@ -23,10 +24,10 @@ class SQLResults(TypedDict):
 class SchemaService:
     @classmethod
     def extract_tables(
-        cls, conn: Connection, session_id: str
+        cls, supabase: Client, session_id: str
     ) -> dict[str, dict[str, TableField]]:
         # Get DSN from session
-        session = db.get_session(conn, session_id)
+        session = db.get_session(supabase, session_id)
         engine = create_engine(session.dsn)
         metadata = MetaData()
         metadata.reflect(bind=engine)
@@ -63,12 +64,12 @@ class SchemaService:
         return tables
 
     @classmethod
-    def create_or_update_tables(cls, conn: Connection, session_id: str):
+    def create_or_update_tables(cls, supabase: Client, session_id: str):
         exists = db.exists_schema_table(session_id)
         if exists:
             raise Exception("Update not implemented yet")
 
-        tables = cls.extract_tables(conn, session_id)
+        tables = cls.extract_tables(supabase, session_id)
         for table_name, fields in tables.items():
             cls._create_or_update_table_schema(conn, session_id, table_name, fields)
 
@@ -106,7 +107,7 @@ class SchemaService:
 class QueryService:
     def __init__(
         self,
-        session: Session,
+        session: Connection,
         model_name: str = "gpt-4",
         temperature: int = 0.0,
     ):

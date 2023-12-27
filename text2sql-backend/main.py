@@ -2,14 +2,13 @@ import argparse
 import json
 import logging
 import os
-import re
-from typing import Annotated
+from typing import Annotated, Generic, List, TypeVar
 
 import uvicorn
-from fastapi import Body, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel
 from pydantic.json import pydantic_encoder
 from pygments import formatters, highlight, lexers
 from pygments_pprint_sql import SqlFilter
@@ -17,10 +16,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 
 import db
+from auth import Auth, token_auth
 from models import (
+    APIResponse,
+    Connection,
+    ConnectRequest,
+    Conversation,
     DataResult,
+    MessageWithResults,
     Result,
-    Session,
+    StatusType,
+    TableSchema,
     UnsavedResult,
     UpdateConversationRequest,
     UpdateSessionRequest,
@@ -80,30 +86,13 @@ async def catch_exceptions_middleware(request: Request, call_next):
 app.middleware("http")(catch_exceptions_middleware)
 
 
-class ConnectRequest(BaseModel):
-    dsn: str = Field(min_length=3)
-    name: str
-
-    @validator("dsn")
-    def validate_dsn_format(cls, value):
-        # Define a regular expression to match the DSN format
-        dsn_regex = r"^[\w\+]+:\/\/\w+:\w+@[\w.-]+[:\d]*\/\w+$"
-
-        if not re.match(dsn_regex, value):
-            raise ValueError(
-                'Invalid DSN format. The expected format is "driver://username:password@host:port/database".'
-            )
-
-        return value
-
-
 @app.get("/healthcheck")
-async def healthcheck():
+async def healthcheck() -> dict:
     return {"status": "ok"}
 
 
 @app.post("/connect")
-async def connect_db(req: ConnectRequest):
+async def connect_db(req: ConnectRequest, supabase: Auth = Depends(token_auth)) -> dict:
     # Try to connect to provided dsn
     try:
         engine = create_engine(req.dsn)
@@ -113,96 +102,81 @@ async def connect_db(req: ConnectRequest):
         logger.error(e)
         return {"status": "error", "message": "Failed to connect to database"}
 
-    # Check if session with DSN already exists, then return session_id
-    res = db.get_session_from_dsn(req.dsn)
-    if res:
-        return {"status": "ok", "session_id": res[0]}
+    # Check if connection with DSN already exists, then return connection_id
+    existing_connection_id = db.get_connection_from_dsn(supabase, req.dsn)
+    if existing_connection_id:
+        return {"status": "ok", "connection_id": existing_connection_id}
 
-    # Insert session only if success
+    # Insert connection only if success
     dialect = engine.url.get_dialect().name
-    database = engine.url.database
+    database = str(engine.url.database)
+    connection = db.create_connection(
+        supabase, req.dsn, database=database, name=req.name, dialect=dialect,
+    )
 
-    with db.DatabaseManager() as conn:
-        session_id = db.create_session(
-            conn,
-            req.dsn,
-            database=database,
-            name=req.name,
-            dialect=dialect,
-        )
-
-        SchemaService.create_or_update_tables(conn, session_id)
-        conn.commit()  # only commit if all step were successful
+    SchemaService.create_or_update_tables(supabase, connection.id)
 
     return {
         "status": "ok",
-        "session_id": session_id,
+        "connection_id": connection.id,
         "database": database,
         "dialect": dialect,
     }
 
 
-# TODO: Add response model
-@app.get("/sessions")
-async def get_sessions():
-    return {
-        "status": "ok",
-        "sessions": db.get_sessions(),
-    }
+@app.get("/connections", response_model=APIResponse[List[Connection]])
+async def get_sessions(supabase: Auth = Depends(token_auth)):
+    supabase.table("connections").select("*").execute()
+    return APIResponse(status=StatusType.ok, data=db.get_connections(supabase))
 
 
-@app.get("/session/{session_id}/schemas")
-async def get_table_schemas(session_id: str):
+@app.get("/session/{session_id}/schemas", response_model=APIResponse[List[TableSchema]])
+async def get_table_schemas(session_id: str, supabase: Auth = Depends(token_auth)):
     # Check for session existence
-    with db.DatabaseManager() as conn:
-        session = db.get_session(conn, session_id)
-        if not session:
-            return {"status": "error", "message": "Invalid session_id"}
+    session = db.get_session(supabase, session_id)
+    if not session:
+        return APIResponse(StatusType.error, "Invalid session_id")
 
-        return {
-            "status": "ok",
-            "tables": db.get_table_schemas_with_descriptions(session_id),
-        }
+    return APIResponse(
+        StatusType.ok, db.get_table_schemas_with_descriptions(session_id)
+    )
 
 
 @app.patch("/schemas/table/{table_id}")
 async def update_table_schema_description(
-    table_id: str, description: Annotated[str, Body(embed=True)]
+    table_id: str,
+    description: Annotated[str, Body(embed=True)],
+    supabase: Auth = Depends(token_auth),
 ):
-    with db.DatabaseManager() as conn:
-        db.update_schema_table_description(
-            conn, table_id=table_id, description=description
-        )
-        conn.commit()
+    db.update_schema_table_description(
+        supabase, table_id=table_id, description=description
+    )
 
-    return {"status": "ok"}
+    return APIResponse(StatusType.ok)
 
 
 @app.patch("/schemas/field/{field_id}")
 async def update_table_schema_field_description(
-    field_id: str, description: Annotated[str, Body(embed=True)]
+    field_id: str,
+    description: Annotated[str, Body(embed=True)],
+    supabase: Auth = Depends(token_auth),
 ):
-    with db.DatabaseManager() as conn:
-        db.update_schema_table_field_description(
-            conn, field_id=field_id, description=description
-        )
-        conn.commit()
+    db.update_schema_table_field_description(
+        supabase, field_id=field_id, description=description
+    )
 
     return {"status": "ok"}
 
 
 @app.get("/session/{session_id}")
-async def get_session(session_id: str):
-    with db.DatabaseManager() as conn:
-        return {
-            "status": "ok",
-            "session": db.get_session(conn, session_id),
-        }
+async def get_session(session_id: str, supabase: Auth = Depends(token_auth)):
+    return APIResponse(StatusType.ok, db.get_session(supabase, session_id))
 
 
-@app.patch("/session/{session_id}")
-async def update_session(session_id: str, req: UpdateSessionRequest):
-    # Try to connect to provided dsn
+@app.patch("/session/{session_id}", response_model=APIResponse[Connection])
+async def update_session(
+    session_id: str, req: UpdateSessionRequest, supabase: Auth = Depends(token_auth)
+):
     try:
         engine = create_engine(req.dsn)
         with engine.connect():
@@ -216,55 +190,65 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
     database = engine.url.database
 
     db.update_session(
+        supabase,
         session_id=session_id,
         dsn=req.dsn,
         database=database,
         name=req.name,
         dialect=dialect,
     )
-    return {
-        "status": "ok",
-        "connection": Session(
+    return APIResponse(
+        StatusType.ok,
+        Connection(
             session_id=session_id,
             dsn=req.dsn,
             database=database,
             name=req.name,
             dialect=dialect,
         ),
-    }
+    )
 
 
-@app.get("/conversations")
-async def conversations():
-    return {
-        "status": "ok",
-        "conversations": db.get_conversations_with_messages_with_results(),
-    }
+@app.get("/conversations", response_model=APIResponse[List[Conversation]])
+async def conversations(supabase: Auth = Depends(token_auth)):
+    return APIResponse(
+        StatusType.ok, db.get_conversations_with_messages_with_results(supabase)
+    )
 
 
-@app.post("/conversation")
+@app.post("/conversation", response_model=APIResponse[str])
 async def create_conversation(
-    session_id: Annotated[str, Body()], name: Annotated[str, Body()]
+    session_id: Annotated[str, Body()],
+    name: Annotated[str, Body()],
+    supabase: Auth = Depends(token_auth),
 ):
-    conversation_id = db.create_conversation(session_id=session_id, name=name)
-    return {"status": "ok", "conversation_id": conversation_id}
+    conversation_id = db.create_conversation(supabase, session_id=session_id, name=name)
+    return APIResponse(StatusType.ok, conversation_id)
 
 
-@app.patch("/conversation/{conversation_id}")
-async def update_conversation(conversation_id: str, req: UpdateConversationRequest):
-    db.update_conversation(conversation_id=conversation_id, name=req.name)
-    return {"status": "ok"}
+@app.patch("/conversation/{conversation_id}", response_model=APIResponse[None])
+async def update_conversation(
+    conversation_id: str,
+    req: UpdateConversationRequest,
+    supabase: Auth = Depends(token_auth),
+):
+    db.update_conversation(supabase, conversation_id=conversation_id, name=req.name)
+    return APIResponse(StatusType.ok)
 
 
-@app.delete("/conversation/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    db.delete_conversation(conversation_id=conversation_id)
-    return {"status": "ok"}
+@app.delete("/conversation/{conversation_id}", response_model=APIResponse[None])
+async def delete_conversation(
+    conversation_id: str, supabase: Auth = Depends(token_auth)
+):
+    db.delete_conversation(supabase, conversation_id=conversation_id)
+    return APIResponse(StatusType.ok)
 
 
-@app.get("/messages")
-async def messages(conversation_id: str):
-    return {"status": "ok", "messages": db.get_messages_with_results(conversation_id)}
+@app.get("/messages", response_model=APIResponse[List[MessageWithResults]])
+async def messages(conversation_id: str, supabase: Auth = Depends(token_auth)):
+    return APIResponse(
+        StatusType.ok, db.get_messages_with_results(supabase, conversation_id)
+    )
 
 
 @app.get("/execute-sql", response_model=UnsavedResult)
@@ -293,13 +277,7 @@ async def execute_sql(
 
             return Response(
                 content=json.dumps(
-                    {
-                        "status": "ok",
-                        "data": DataResult(
-                            type="data",
-                            content=rows,
-                        ),
-                    },
+                    {"status": "ok", "data": DataResult(type="data", content=rows,),},
                     default=pydantic_encoder,
                     indent=4,
                 ),
@@ -347,10 +325,7 @@ async def query(
 
         # Add assistant message to message history
         saved_message = db.add_message_to_conversation(
-            conversation_id,
-            response.text,
-            role="assistant",
-            results=saved_results,
+            conversation_id, response.text, role="assistant", results=saved_results,
         )
 
         # Execute query if any and fetch data result now
@@ -361,12 +336,7 @@ async def query(
                 rows = [data["columns"]]
                 rows.extend([x for x in r] for r in data["result"])
 
-                unsaved_results.append(
-                    DataResult(
-                        type="data",
-                        content=rows,
-                    )
-                )
+                unsaved_results.append(DataResult(type="data", content=rows,))
 
         # Replace saved results with unsaved that include data returned if any
         # TODO @Rami this is causing the bookmark button in the frontend to fail when the message is first created because result_id is null.
@@ -393,9 +363,7 @@ def init_argparse() -> argparse.ArgumentParser:
     Returns:
         argparse.ArgumentParser: Object for parsing CLI arguments
     """
-    parser = argparse.ArgumentParser(
-        description="Launches the Python API",
-    )
+    parser = argparse.ArgumentParser(description="Launches the Python API",)
     parser.add_argument(
         "--host",
         dest="host",
