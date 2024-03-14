@@ -8,30 +8,10 @@ COPY Dockerfile .
 # Execute the linting process
 RUN echo "### Linting Dockerfile ###" && /bin/hadolint --config /config/hadolint.yaml Dockerfile
 
-
-
 # ------------------------------
-# First Stage - Build base image
-FROM python:3.11.6-slim-bookworm as base
-# Update packages and install security patches
-RUN apt update && apt upgrade -y
-# Needed for psycopg2
-RUN apt-get install git libpq-dev build-essential -y
-
-# Set working directory
-WORKDIR /home/dataline/backend
-
-# Install poetry
-ENV PATH="/home/dataline/.poetry/bin:${PATH}" \
-    POETRY_HOME="/home/dataline/.poetry"
-
-RUN pip install --no-cache-dir poetry
-
-# Copy in poetry files only - this allows us to cache the layer if no new dependencies were added and install base deps
-COPY text2sql-backend/pyproject.toml text2sql-backend/poetry.lock ./
-RUN poetry config virtualenvs.create false && poetry install --only main --no-root
-
-# Second Stage - Build frontend build export dist folder 
+#          TEMP STAGES
+# ------------------------------
+# Temp Stage - Build frontend to export dist folder
 FROM node:21-alpine as base-frontend
 # Need python for node-gyp in building
 RUN apk add --no-cache python3 make gcc g++
@@ -51,7 +31,52 @@ COPY text2sql-frontend/src ./src
 ENV NODE_ENV=local
 RUN npm run build
 
+# ------------------------------
+# Temp Stage - Build python wheels to export
+FROM python:3.11.6-slim as requirements-stage
 
+WORKDIR /tmp
+
+RUN pip install poetry poetry-plugin-export
+
+COPY text2sql-backend/pyproject.toml text2sql-backend/poetry.lock* /tmp/
+
+RUN poetry export -f requirements.txt --output requirements.txt --without-hashes
+
+RUN apt-get update \
+    && apt-get -y install --no-install-recommends libpq-dev gcc python3-dev sudo
+
+RUN pip wheel --no-cache-dir --no-deps --wheel-dir ./wheels -r requirements.txt
+
+# ------------------------------
+# Temp Stage - Get files for caddy
+FROM debian:12-slim as caddy-temp
+
+WORKDIR /tmp
+
+RUN apt update && apt upgrade -y && \
+    apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o ./caddy-stable-archive-keyring.gpg
+RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee ./caddy-stable.list
+
+# ------------------------------
+#            BASE
+# ------------------------------
+# First Stage - Build base image
+FROM python:3.11.6-slim-bookworm as base
+
+# Update packages and install security patches
+# Set working directory
+WORKDIR /home/dataline/backend
+
+COPY --from=requirements-stage /tmp/wheels /wheels
+COPY --from=requirements-stage /tmp/requirements.txt .
+
+# ANNOYING: removing wheels doesn't reduce size
+RUN pip install --no-cache /wheels/* && rm -rf /wheels/
+
+# ------------------------------
+#            PROD
 # ------------------------------
 # Third Stage - Build production image (excludes dev dependencies)
 FROM base as prod
@@ -63,13 +88,14 @@ WORKDIR /home/dataline
 RUN pip install --no-cache-dir supervisor
 
 # Install Caddy server
-RUN apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+COPY --from=caddy-temp /tmp/caddy-stable-archive-keyring.gpg /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+COPY --from=caddy-temp /tmp/caddy-stable.list /etc/apt/sources.list.d/caddy-stable.list
 RUN apt update
 RUN apt install caddy
 
 
+# ------------------------------
+#            RUNNER
 # ------------------------------
 # Last stage - Copy frontend build and backend source and run
 FROM prod as runner
@@ -83,6 +109,11 @@ WORKDIR /home/dataline/backend
 COPY text2sql-backend/*.py .
 COPY text2sql-backend/dataline ./dataline
 COPY text2sql-backend/alembic ./alembic
+COPY text2sql-backend/alembic.ini .
 
 WORKDIR /home/dataline
+
+EXPOSE 7377
+EXPOSE 2222
+
 CMD ["supervisord", "-n"]

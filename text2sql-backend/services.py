@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 from sqlalchemy import MetaData, create_engine, inspect
 
 import db
-from context_builder import CustomSQLContextContainerBuilder
+from dataline.context_builder import CustomSQLContextContainerBuilder
 from errors import GenerationError, RelatedTablesNotFoundError
 from models import Connection, SQLQueryResult, TableField, UnsavedResult
 from query_manager import SQLQueryManager
