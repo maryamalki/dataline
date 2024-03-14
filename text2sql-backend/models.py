@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Generic, Literal, Optional, TypeVar, Union
+from typing import Any, Generic, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, Field, validator
 from pydantic.dataclasses import dataclass
@@ -155,7 +155,7 @@ class ConnectRequest(BaseModel):
     @validator("dsn")
     def validate_dsn_format(cls, value: str) -> str:
         # Define a regular expression to match the DSN format
-        dsn_regex = r"^[\w\+]+:\/\/\w+:\w+@[\w.-]+[:\d]*\/\w+$"
+        dsn_regex = r"^[\w\+]+:\/\/[\w-]+:\w+@[\w.-]+[:\d]*\/\w+$"
 
         if not re.match(dsn_regex, value):
             raise ValueError(

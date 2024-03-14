@@ -65,6 +65,8 @@ RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | t
 # First Stage - Build base image
 FROM python:3.11.6-slim-bookworm as base
 
+RUN apt-get update && apt-get -y install --no-install-recommends libpq5
+
 # Update packages and install security patches
 # Set working directory
 WORKDIR /home/dataline/backend
