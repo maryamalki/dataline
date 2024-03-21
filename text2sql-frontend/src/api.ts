@@ -222,7 +222,8 @@ const query = async (
   query: string,
   execute: boolean
 ) => {
-  const response = await axios.get<QueryResult>(`${baseUrl}/query`, {
+  // const response = await axios.get<QueryResult>(`${baseUrl}/query`, {
+  const response = await axios.get<QueryResult>(`${baseUrl}/query_new`, {
     params: {
       conversation_id: conversationId,
       query,

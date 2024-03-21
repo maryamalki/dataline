@@ -16,7 +16,7 @@ export const Conversation = () => {
   const messageListRef = useRef<HTMLDivElement | null>(null);
 
   function submitQuery(value: string) {
-    // Add message to messages
+    // Add message
     setMessages((prevMessages) => [
       ...prevMessages,
       {
@@ -24,11 +24,6 @@ export const Conversation = () => {
         role: "user",
         message_id: generateUUID(),
       },
-    ]);
-
-    // Add message to messages
-    setMessages((prevMessages) => [
-      ...prevMessages,
       {
         content: "Loading...",
         role: "assistant",

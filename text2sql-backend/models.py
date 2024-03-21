@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Generic, Literal, Optional, TypeVar, Union
+from typing import Any, Generic, Literal, Optional, TypeVar, Union
 
 from pydantic import BaseModel, Field, validator
 from pydantic.dataclasses import dataclass
@@ -137,6 +137,10 @@ class SQLQueryResult:
     sql: str = Field(default="")
     chart_request: bool = Field(default=False)
     selected_tables: list[str] = Field(default_factory=list)
+
+
+class NewSQLQueryResult(SQLQueryResult):
+    query_result: str = Field(default="")
 
 
 class UpdateConversationRequest(BaseModel):

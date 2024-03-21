@@ -35,7 +35,7 @@ from models import (
     UpdateConnectionRequest,
     UpdateConversationRequest,
 )
-from services import QueryService, SchemaService, results_from_query_response
+from services import QueryService, NewQueryService, SchemaService, results_from_query_response
 from sql_wrapper import request_execute, request_limit
 
 logging.basicConfig(level=logging.DEBUG)
@@ -408,6 +408,61 @@ async def update_result_content(
         db.update_result_content(conn, result_id=result_id, content=content)
         conn.commit()
         return SuccessResponse()
+
+
+@app.get("/query_new", response_model=list[UnsavedResult])
+async def query_new(
+    conversation_id: str,
+    query: str,
+    limit: int = 10,
+    execute: bool = False,
+    session: AsyncSession = Depends(get_session),
+    settings_service: SettingsService = Depends(SettingsService),
+) -> Response | ErrorResponse:
+    request_limit.set(limit)
+    request_execute.set(execute)
+
+    with db.DatabaseManager() as conn:
+        # Get conversation
+        conversation = db.get_conversation(conversation_id)
+
+        # Create query service and generate response
+        connection_id = conversation.connection_id
+        connection = db.get_connection(conn, connection_id)
+        if not connection:
+            return ErrorResponse(status=StatusType.error, data="Invalid connection_id")
+
+        openai_key = await settings_service.get_openai_api_key(session)
+        query_service = NewQueryService(connection=connection, openai_api_key=openai_key, model_name="gpt-3.5-turbo")
+        response = await query_service.query(query, conversation_id=conversation_id)
+        db.add_message_to_conversation(
+            conversation_id, content=query, role="user", selected_tables=response.selected_tables
+        )
+
+        unsaved_results = results_from_query_response(response)
+
+        # Save results before executing query if any (without data)
+        saved_results: list[Result] = []
+        for result in unsaved_results:
+            saved_result = db.create_result(result)
+            saved_results.append(saved_result)
+
+        # Add assistant message to message history
+        saved_message = db.add_message_to_conversation(
+            conversation_id,
+            response.text,
+            role="assistant",
+            results=saved_results,
+        )
+
+        return Response(
+            content=json.dumps(
+                {"status": "ok", "data": {"message": saved_message}},
+                default=pydantic_encoder,
+                indent=4,
+            ),
+            media_type="application/json",
+        )
 
 
 @app.get("/query", response_model=list[UnsavedResult])

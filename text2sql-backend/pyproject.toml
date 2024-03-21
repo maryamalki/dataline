@@ -22,7 +22,7 @@ sqlalchemy = {extras = ["asyncio"], version = "^2.0.27"}
 rapidfuzz = "^3.0.0"
 psycopg = {extras = ["pool"], version = "^3.1.9"}
 sql-metadata = "^2.8.0"
-tiktoken = "^0.4.0"
+tiktoken = "^0.6.0"
 nltk = "^3.8.1"
 pyvis = "^0.3.2"
 pre-commit = "^3.4.0"
@@ -32,6 +32,9 @@ python-multipart = "^0.0.9"
 aiosqlite = "^0.20.0"
 alembic = "^1.13.1"
 pydantic-settings = "^2.2.1"
+langchain = "^0.1.12"
+langchain-community = "^0.0.28"
+langchain-openai = "^0.0.8"
 
 
 [tool.poetry.group.dev.dependencies]

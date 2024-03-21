@@ -8,9 +8,11 @@ from sqlalchemy import MetaData, create_engine, inspect
 import db
 from context_builder import CustomSQLContextContainerBuilder
 from errors import GenerationError, RelatedTablesNotFoundError
-from models import Connection, SQLQueryResult, TableField, UnsavedResult
+from models import Connection, SQLQueryResult, NewSQLQueryResult, TableField, UnsavedResult
 from query_manager import SQLQueryManager
 from sql_wrapper import CustomSQLDatabase
+
+from dataline.agents.base import SQLAgent
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +99,75 @@ class SchemaService:
                 )
 
 
+class NewQueryService:
+    def __init__(
+        self,
+        connection: Connection,
+        openai_api_key: str,
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.0,
+    ) -> None:
+        self.session = connection
+        self.engine = create_engine(connection.dsn)
+        self.agent = SQLAgent(openai_api_key=openai_api_key, engine=self.engine, model=model_name)
+        # self.insp = inspect(self.engine)
+        # self.table_names = self.insp.get_table_names()
+        # self.sql_db = CustomSQLDatabase(self.engine, include_tables=self.table_names)
+        # self.context_builder = CustomSQLContextContainerBuilder(connection, self.sql_db, openai_api_key=openai_api_key)
+        # self.query_manager = SQLQueryManager(
+        # dsn=connection.dsn, openai_api_key=openai_api_key, model=model_name, temperature=temperature
+        # )
+
+    async def query(self, query: str, conversation_id: str):  # -> SQLQueryResult:
+        message_history = db.get_message_history_with_selected_tables_with_sql(conversation_id)
+        input_dict: dict = {"input": query}
+        if message_history:
+            input_dict["chat_history"] = [(message["role"], message["content"]) for message in message_history]
+        response = self.agent.invoke(input_dict)
+
+        def get_related_tables(intermediate_steps):
+            sql_db_schema_tool_calls = [tool for tool in intermediate_steps if tool[0].tool == "sql_db_schema"]
+            if sql_db_schema_tool_calls:
+                inputs: list[dict] = [
+                    tool[0].tool_input for tool in sql_db_schema_tool_calls
+                ]  # {'table_names': 'Invoice,Customer'}
+                parsed_inputs = [inp["table_names"].split(",") for inp in inputs]
+                flattened_inputs = [item for sublist in parsed_inputs for item in sublist]
+                return list(set(flattened_inputs))
+                # return ", ".join(set(flattened_inputs))
+            sql_db_list_tables_tool_calls = [
+                tool for tool in intermediate_steps if tool[0].tool == "sql_db_list_tables"
+            ]
+            if sql_db_list_tables_tool_calls:
+                all_tables = sql_db_list_tables_tool_calls[0][
+                    1
+                ]  # all the tables, in this fashion "<table1>, <table2>"...
+                return [table.strip() for table in all_tables.split(",")]
+            return []
+
+        def get_sql_query_result(intermediate_steps):
+            sql_db_query_tool_calls = [tool for tool in intermediate_steps if tool[0].tool == "sql_db_query"]
+            if sql_db_query_tool_calls:
+                return sql_db_query_tool_calls[-1][1]  # not sure what the type is. Skip for now
+            return ""
+
+        related_tables = get_related_tables(response["intermediate_steps"])
+        result = NewSQLQueryResult(success=True, text=response.get("answer") or response.get("output", ""))
+        if sql := response.get("sql_query", ""):
+            result.sql = sql
+            # TODO: add sql query result
+        if related_tables:
+            result.selected_tables = related_tables
+        return result
+
+
 class QueryService:
     def __init__(
         self,
         connection: Connection,
         openai_api_key: str,
         model_name: str = "gpt-4",
-        temperature: int = 0.0,
+        temperature: float = 0.0,
     ) -> None:
         self.session = connection
         self.engine = create_engine(connection.dsn)
