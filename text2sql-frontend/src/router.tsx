@@ -1,6 +1,7 @@
 import { RouteObject, createBrowserRouter } from "react-router-dom";
 import { Home } from "./components/Home/Home";
 import { Landing } from "./components/Landing/Landing";
+import { NewConnection } from "@components/Connection/NewConnection";
 import { BetaSignup } from "./components/BetaSignup/BetaSignup";
 import { Conversation } from "./components/Conversation/Conversation";
 import { ConnectionSelector } from "./components/Connection/ConnectionSelector";
@@ -12,6 +13,7 @@ export enum Routes {
   BetaSignup = "/beta-signup",
   SignIn = "/login",
   UserProfile = "/user",
+  NewConnection = "/connection/new",
   Connection = "/connection/:connectionId",
   Chat = "/chat/:conversationId",
 }
@@ -27,7 +29,7 @@ let routes: RouteObject[] = [
   },
 ];
 
-let private_routes: RouteObject[] = [
+const private_routes: RouteObject[] = [
   {
     path: Routes.Root,
     element: <Home />,
@@ -48,6 +50,10 @@ let private_routes: RouteObject[] = [
         path: Routes.UserProfile,
         element: <Account />,
       },
+      {
+        path: Routes.NewConnection,
+        element: <NewConnection />,
+      }
     ],
   },
 ];

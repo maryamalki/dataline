@@ -19,7 +19,7 @@ export const ProfileDropdown = () => {
           >
             {userInfo?.avatarUrl ? (
               <img
-                className="h-10 w-10 rounded-full bg-gray-600 object-cover"
+                className="h-12 w-12 rounded-full bg-gray-600 object-cover"
                 src={userInfo.avatarUrl}
                 alt=""
               />

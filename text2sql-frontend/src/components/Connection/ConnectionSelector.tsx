@@ -1,5 +1,4 @@
 import { useConnectionList } from "../Providers/ConnectionListProvider";
-import NewConnectionModal from "../Connection/NewConnectionModal";
 import { api } from "../../api";
 import DatabaseDialectImage from "./DatabaseDialectImage";
 import { useState } from "react";
@@ -8,23 +7,13 @@ import { useConversationList } from "../Providers/ConversationListProvider";
 import { Cog6ToothIcon } from "@heroicons/react/24/outline";
 import { Link, useNavigate } from "react-router-dom";
 import { enqueueSnackbar } from "notistack";
+import { Routes } from "@/router";
 
 export const ConnectionSelector = () => {
   const navigate = useNavigate();
   const [, setConversation] = useState<IConversation | null>();
-  const [connections, , fetchConnections] = useConnectionList();
+  const [connections, ,] = useConnectionList();
   const [, , fetchConversations] = useConversationList();
-  const [isNewConnectionModalOpen, setIsNewConnectionModalOpen] =
-    useState(false);
-  const openNewConnectionModal = () => {
-    setIsNewConnectionModalOpen(true);
-  };
-
-  const closeNewConnectionModal = () => {
-    setIsNewConnectionModalOpen(false);
-    // Refresh connections
-    fetchConnections();
-  };
 
   function selectConnection(connection: IConnection) {
     // Create a new conversation with the selected connection
@@ -95,13 +84,9 @@ export const ConnectionSelector = () => {
                 </div>
               </div>
             ))}
-            <NewConnectionModal
-              isOpen={isNewConnectionModalOpen}
-              onClose={closeNewConnectionModal}
-            />
             <div
               className="hover:cursor-pointer mx-auto md:hover:ring-2 ring-gray-600 border border-gray-700 aspect-square overflow-hidden rounded-lg flex flex-col justify-between hover:bg-gray-700 transition-all duration-75 w-2/3 sm:w-auto sm:max-w-xs"
-              onClick={openNewConnectionModal}
+              onClick={() => navigate(Routes.NewConnection)}
             >
               {/* Item to add new connection */}
               <div className="hidden md:flex overflow-hidden w-full justify-center items-center md:mt-4">
