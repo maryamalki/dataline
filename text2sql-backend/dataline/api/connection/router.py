@@ -13,11 +13,16 @@ from dataline.config import config
 from dataline.models.connection.schema import (
     ConnectionOut,
     GetConnectionOut,
+    SampleOut,
     TableSchemasOut,
 )
 from dataline.repositories.base import NotFoundError, NotUniqueError
 from dataline.utils import get_sqlite_dsn
-from models import StatusType, SuccessResponse, UpdateConnectionRequest
+from models import (
+    SuccessListResponse,
+    SuccessResponse,
+    UpdateConnectionRequest,
+)
 from services import SchemaService
 
 logger = logging.getLogger(__name__)
@@ -74,7 +79,6 @@ def create_db_connection(dsn: str, name: str, is_sample: bool = False) -> Succes
         conn.commit()  # only commit if all step were successful
 
     return SuccessResponse(
-        status=StatusType.ok,
         data=ConnectionOut(
             id=connection_id, dsn=dsn, database=database, dialect=dialect, name=name, is_sample=is_sample
         ),
@@ -118,7 +122,6 @@ async def connect_db(req: ConnectRequest) -> SuccessResponse[ConnectionOut]:
 async def get_connection(connection_id: UUID) -> SuccessResponse[GetConnectionOut]:
     with db.DatabaseManager() as conn:
         return SuccessResponse(
-            status=StatusType.ok,
             data=GetConnectionOut(
                 connection=db.get_connection(conn, connection_id),
             ),
@@ -132,7 +135,6 @@ class ConnectionsOut(BaseModel):
 @router.get("/connections")
 async def get_connections() -> SuccessResponse[ConnectionsOut]:
     return SuccessResponse(
-        status=StatusType.ok,
         data=ConnectionsOut(
             connections=db.get_connections(),
         ),
@@ -143,7 +145,7 @@ async def get_connections() -> SuccessResponse[ConnectionsOut]:
 async def delete_connection(connection_id: str) -> SuccessResponse[None]:
     with db.DatabaseManager() as conn:
         db.delete_connection(conn, connection_id)
-    return SuccessResponse(status=StatusType.ok)
+    return SuccessResponse()
 
 
 @router.patch("/connection/{connection_id}")
@@ -170,7 +172,6 @@ async def update_connection(connection_id: UUID, req: UpdateConnectionRequest) -
     )
 
     return SuccessResponse(
-        status=StatusType.ok,
         data=GetConnectionOut(
             connection=ConnectionOut(
                 id=connection_id,
@@ -194,7 +195,6 @@ async def get_table_schemas(connection_id: UUID) -> SuccessResponse[TableSchemas
             raise HTTPException(status_code=404, detail="Invalid connection_id")
 
         return SuccessResponse(
-            status=StatusType.ok,
             data=TableSchemasOut(
                 tables=db.get_table_schemas_with_descriptions(connection_id),
             ),
@@ -221,6 +221,16 @@ async def update_table_schema_field_description(
         conn.commit()
 
     return {"status": "ok"}
+
+
+@router.get("/samples")
+async def get_sample_connections() -> SuccessListResponse[SampleOut]:
+    samples = [
+        ("Dvd Rental", config.sample_dvdrental_path),
+        ("Netflix Shows", config.sample_netflix_path),
+        ("Titanic", config.sample_titanic_path),
+    ]
+    return SuccessListResponse(data=[SampleOut(title=sample[0], file=get_sqlite_dsn(sample[1])) for sample in samples])
 
 
 # TODO: Convert to using services and session
@@ -253,7 +263,6 @@ async def update_table_schema_field_description(
 # ) -> SuccessResponse[GetConnectionOut]:
 #     connection = await connection_service.get_connection(session, connection_id)
 #     return SuccessResponse(
-#         status=StatusType.ok,
 #         data=GetConnectionOut(
 #             connection=connection,
 #         ),
@@ -267,6 +276,5 @@ async def update_table_schema_field_description(
 # ) -> SuccessResponse[GetConnectionListOut]:
 #     connections = await connection_service.get_connections(session)
 #     return SuccessResponse(
-#         status=StatusType.ok,
 #         data=GetConnectionListOut(connections=connections),
 #     )
