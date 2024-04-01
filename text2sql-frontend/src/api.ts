@@ -10,7 +10,6 @@ import { IEditConnection } from "./components/Library/types";
 const baseUrl = "http://localhost:7377";
 
 type SuccessResponse<T> = {
-  status: "ok";
   data: T;
 };
 
@@ -349,6 +348,7 @@ export const api = {
   healthcheck,
   getConnection,
   getTableSchemas,
+  getSamples,
   updateTableSchemaDescription,
   updateTableSchemaFieldDescription,
   createConnection,

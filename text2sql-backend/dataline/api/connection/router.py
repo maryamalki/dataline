@@ -14,6 +14,7 @@ from dataline.config import config
 from dataline.models.connection.schema import (
     ConnectionOut,
     GetConnectionOut,
+    SampleOut,
     TableSchemasOut,
 )
 from dataline.repositories.base import NotFoundError, NotUniqueError
@@ -75,7 +76,6 @@ def create_db_connection(dsn: str, name: str, is_sample: bool = False) -> Succes
         conn.commit()  # only commit if all step were successful
 
     return SuccessResponse(
-        status=StatusType.ok,
         data=ConnectionOut(
             id=connection_id, dsn=dsn, database=database, dialect=dialect, name=name, is_sample=is_sample
         ),
@@ -133,7 +133,6 @@ async def connect_db_from_file(file: UploadFile, name: str = Body(...)) -> Succe
 async def get_connection(connection_id: UUID) -> SuccessResponse[GetConnectionOut]:
     with db.DatabaseManager() as conn:
         return SuccessResponse(
-            status=StatusType.ok,
             data=GetConnectionOut(
                 connection=db.get_connection(conn, connection_id),
             ),
@@ -147,7 +146,6 @@ class ConnectionsOut(BaseModel):
 @router.get("/connections")
 async def get_connections() -> SuccessResponse[ConnectionsOut]:
     return SuccessResponse(
-        status=StatusType.ok,
         data=ConnectionsOut(
             connections=db.get_connections(),
         ),
@@ -158,7 +156,7 @@ async def get_connections() -> SuccessResponse[ConnectionsOut]:
 async def delete_connection(connection_id: str) -> SuccessResponse[None]:
     with db.DatabaseManager() as conn:
         db.delete_connection(conn, connection_id)
-    return SuccessResponse(status=StatusType.ok)
+    return SuccessResponse()
 
 
 @router.patch("/connection/{connection_id}")
@@ -185,7 +183,6 @@ async def update_connection(connection_id: UUID, req: UpdateConnectionRequest) -
     )
 
     return SuccessResponse(
-        status=StatusType.ok,
         data=GetConnectionOut(
             connection=ConnectionOut(
                 id=connection_id,
@@ -209,7 +206,6 @@ async def get_table_schemas(connection_id: UUID) -> SuccessResponse[TableSchemas
             raise HTTPException(status_code=404, detail="Invalid connection_id")
 
         return SuccessResponse(
-            status=StatusType.ok,
             data=TableSchemasOut(
                 tables=db.get_table_schemas_with_descriptions(connection_id),
             ),
@@ -284,7 +280,6 @@ async def get_sample_connections() -> SuccessListResponse[SampleOut]:
 # ) -> SuccessResponse[GetConnectionOut]:
 #     connection = await connection_service.get_connection(session, connection_id)
 #     return SuccessResponse(
-#         status=StatusType.ok,
 #         data=GetConnectionOut(
 #             connection=connection,
 #         ),
@@ -298,6 +293,5 @@ async def get_sample_connections() -> SuccessListResponse[SampleOut]:
 # ) -> SuccessResponse[GetConnectionListOut]:
 #     connections = await connection_service.get_connections(session)
 #     return SuccessResponse(
-#         status=StatusType.ok,
 #         data=GetConnectionListOut(connections=connections),
 #     )
