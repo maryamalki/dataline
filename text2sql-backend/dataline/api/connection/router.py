@@ -18,11 +18,7 @@ from dataline.models.connection.schema import (
 )
 from dataline.repositories.base import NotFoundError, NotUniqueError
 from dataline.utils import get_sqlite_dsn
-from models import (
-    SuccessListResponse,
-    SuccessResponse,
-    UpdateConnectionRequest,
-)
+from models import SuccessListResponse, SuccessResponse, UpdateConnectionRequest
 from services import SchemaService
 
 logger = logging.getLogger(__name__)
@@ -88,6 +84,7 @@ def create_db_connection(dsn: str, name: str, is_sample: bool = False) -> Succes
 class ConnectRequest(BaseModel):
     dsn: str = Field(min_length=3)
     name: str
+    is_sample: bool = False
 
     @field_validator("dsn")
     def validate_dsn_format(cls, value: str) -> str:
@@ -106,16 +103,9 @@ class ConnectRequest(BaseModel):
         return value
 
 
-@router.post("/create-sample-db")
-async def create_sample_db() -> SuccessResponse[ConnectionOut]:
-    name = "DVD Rental (Sample)"
-    dsn = get_sqlite_dsn(config.sample_dvdrental_path)
-    return create_db_connection(dsn, name, is_sample=True)
-
-
 @router.post("/connect", response_model_exclude_none=True)
 async def connect_db(req: ConnectRequest) -> SuccessResponse[ConnectionOut]:
-    return create_db_connection(req.dsn, req.name)
+    return create_db_connection(req.dsn, req.name, is_sample=req.is_sample)
 
 
 @router.get("/connection/{connection_id}")
@@ -226,11 +216,17 @@ async def update_table_schema_field_description(
 @router.get("/samples")
 async def get_sample_connections() -> SuccessListResponse[SampleOut]:
     samples = [
-        ("Dvd Rental", config.sample_dvdrental_path),
-        ("Netflix Shows", config.sample_netflix_path),
-        ("Titanic", config.sample_titanic_path),
+        (
+            "Dvd Rental",
+            config.sample_dvdrental_path,
+            "https://www.postgresqltutorial.com/postgresql-getting-started/postgresql-sample-database/",
+        ),
+        ("Netflix Shows", config.sample_netflix_path, "https://www.kaggle.com/datasets/shivamb/netflix-shows"),
+        ("Titanic", config.sample_titanic_path, "https://www.kaggle.com/datasets/ibrahimelsayed182/titanic-dataset"),
     ]
-    return SuccessListResponse(data=[SampleOut(title=sample[0], file=get_sqlite_dsn(sample[1])) for sample in samples])
+    return SuccessListResponse(
+        data=[SampleOut(title=sample[0], file=get_sqlite_dsn(sample[1]), link=sample[2]) for sample in samples]
+    )
 
 
 # TODO: Convert to using services and session

@@ -79,3 +79,4 @@ class TableSchemasOut(BaseModel):
 class SampleOut(BaseModel):
     title: str
     file: str
+    link: str
