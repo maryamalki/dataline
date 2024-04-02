@@ -85,6 +85,7 @@ def create_db_connection(dsn: str, name: str, is_sample: bool = False) -> Succes
 class ConnectRequest(BaseModel):
     dsn: str = Field(min_length=3)
     name: str
+    is_sample: bool = False
 
     @field_validator("dsn")
     def validate_dsn_format(cls, value: str) -> str:
@@ -101,13 +102,6 @@ class ConnectRequest(BaseModel):
             value = value.replace("postgres://", "postgresql://")
 
         return value
-
-
-@router.post("/create-sample-db")
-async def create_sample_db() -> SuccessResponse[ConnectionOut]:
-    name = "DVD Rental (Sample)"
-    dsn = get_sqlite_dsn(config.sample_dvdrental_path)
-    return create_db_connection(dsn, name, is_sample=True)
 
 
 @router.post("/connect", response_model_exclude_none=True)
@@ -242,6 +236,22 @@ async def update_table_schema_field_description(
         conn.commit()
 
     return {"status": "ok"}
+
+
+@router.get("/samples")
+async def get_sample_connections() -> SuccessListResponse[SampleOut]:
+    samples = [
+        (
+            "Dvd Rental",
+            config.sample_dvdrental_path,
+            "https://www.postgresqltutorial.com/postgresql-getting-started/postgresql-sample-database/",
+        ),
+        ("Netflix Shows", config.sample_netflix_path, "https://www.kaggle.com/datasets/shivamb/netflix-shows"),
+        ("Titanic", config.sample_titanic_path, "https://www.kaggle.com/datasets/ibrahimelsayed182/titanic-dataset"),
+    ]
+    return SuccessListResponse(
+        data=[SampleOut(title=sample[0], file=get_sqlite_dsn(sample[1]), link=sample[2]) for sample in samples]
+    )
 
 
 # TODO: Convert to using services and session

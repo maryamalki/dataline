@@ -11,8 +11,8 @@ type ConnectionListContextType = [
 
 const ConnectionListContext = createContext<ConnectionListContextType>([
   null,
-  () => {},
-  () => {},
+  () => { },
+  () => { },
 ]);
 
 export const useConnectionList = () => {
