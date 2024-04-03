@@ -7,7 +7,8 @@ import { enqueueSnackbar } from 'notistack'
 import { isAxiosError } from 'axios'
 import { useNavigate } from 'react-router-dom'
 import { Routes } from '@/router'
-import { useConnectionList } from '../Providers/ConnectionListProvider'
+import { useConnectionList } from '@/components/Providers/ConnectionListProvider'
+import { Button } from '@catalyst/button'
 
 export const SampleSelector = () => {
     const [samples, setSamples] = useState<SampleResult[]>([])
@@ -79,13 +80,14 @@ export const SampleSelector = () => {
             <RadioGroup name="sample" defaultValue="" onChange={handleRadioChange}>
                 {samples.map((sample, index) => (
                     <RadioField key={index}>
-                        <Radio value={sample.file} />
-                        <Label>{sample.title}</Label>
+                        <Radio value={sample.file} color="white" />
+                        <Label className="cursor-pointer">{sample.title}</Label>
                         <Description>{sample.link}</Description>
                     </RadioField>
                 ))}
             </RadioGroup>
-            <div onClick={handleButtonClick}>Send API Request</div>
+
+            <Button className="cursor-pointer mt-4" onClick={handleButtonClick}>Create sample</Button>
         </Fieldset>
     )
 };
