@@ -77,24 +77,25 @@ export const NewConnection = () => {
               Data Source Type
             </label>
 
-            <RadioGroup name="resale" defaultValue="" onChange={(event) => setSelectedRadio(event as RadioValue)}>
+            <RadioGroup defaultValue="" onChange={(event) => setSelectedRadio(event as RadioValue)}>
               <RadioField>
-                <Radio value="sample" />
-                <Label>Choose a sample dataset</Label>
+                <Radio value="sample" color="white" />
+                <Label className="cursor-pointer">Choose a sample dataset</Label>
                 <Description>Samples allow you to get started quickly</Description>
               </RadioField>
               <RadioField>
-                <Radio value="custom" />
-                <Label>Setup a custom connection</Label>
+                <Radio value="custom" color="white" />
+                <Label className="cursor-pointer">Setup a custom connection</Label>
                 <Description>Connect to your local databases or files</Description>
               </RadioField>
             </RadioGroup>
           </div>
         </div>
 
-        {(selectedRadio === "sample") && <SampleSelector />}
-        {selectedRadio === "custom" && <ConnectionCreator />}
-
+        <div className="mt-8">
+          {(selectedRadio === "sample") && <SampleSelector name={connectionName} />}
+          {selectedRadio === "custom" && <ConnectionCreator name={connectionName} />}
+        </div>
       </div>
     </div>
   );

@@ -10,7 +10,7 @@ import { Routes } from '@/router'
 import { useConnectionList } from '@/components/Providers/ConnectionListProvider'
 import { Button } from '@catalyst/button'
 
-export const SampleSelector = () => {
+export const SampleSelector = ({ name = null }: { name: string | null }) => {
     const [samples, setSamples] = useState<SampleResult[]>([])
     const [selectedSample, setSelectedSample] = useState<SampleResult | null>(null);
     const [, , fetchConnections] = useConnectionList();
@@ -39,7 +39,13 @@ export const SampleSelector = () => {
     const handleButtonClick = async () => {
         if (selectedSample !== null) {
             try {
-                await api.createConnection(selectedSample.file, selectedSample.title + " (Sample)", true)
+                if (name === null || name === "") {
+                    name = selectedSample.title + " (Sample)"
+                } else {
+                    name = name + " (Sample)"
+                }
+
+                await api.createConnection(selectedSample.file, name, true)
                 fetchConnections();
                 enqueueSnackbar({
                     variant: "success",
