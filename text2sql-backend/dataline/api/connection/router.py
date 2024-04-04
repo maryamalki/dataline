@@ -1,9 +1,10 @@
 import logging
 import re
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
@@ -17,7 +18,7 @@ from dataline.models.connection.schema import (
     TableSchemasOut,
 )
 from dataline.repositories.base import NotFoundError, NotUniqueError
-from dataline.utils import get_sqlite_dsn
+from dataline.utils import generate_short_uuid, get_sqlite_dsn, is_valid_sqlite_file
 from models import SuccessListResponse, SuccessResponse, UpdateConnectionRequest
 from services import SchemaService
 
@@ -106,6 +107,23 @@ class ConnectRequest(BaseModel):
 @router.post("/connect", response_model_exclude_none=True)
 async def connect_db(req: ConnectRequest) -> SuccessResponse[ConnectionOut]:
     return create_db_connection(req.dsn, req.name, is_sample=req.is_sample)
+
+
+@router.post("/connect/file")
+async def connect_db_from_file(name: str, file: UploadFile) -> SuccessResponse[ConnectionOut]:
+    # Validate file type - currently only sqlite supported
+    if not is_valid_sqlite_file(file):
+        raise HTTPException(status_code=400, detail="File provided must be a valid SQLite file.")
+
+    # Store file in data directory
+    generated_name = generate_short_uuid() + ".sqlite"
+    file_path = Path(config.data_directory) / generated_name
+    with file_path.open("wb") as f:
+        f.write(file.file.read())
+
+    # Create connection with the locally copied file
+    dsn = get_sqlite_dsn(str(file_path.absolute()))
+    return create_db_connection(dsn, name, is_sample=False)
 
 
 @router.get("/connection/{connection_id}")
