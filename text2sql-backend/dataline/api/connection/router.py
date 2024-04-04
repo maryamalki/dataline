@@ -1,9 +1,10 @@
 import logging
 import re
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
@@ -16,8 +17,8 @@ from dataline.models.connection.schema import (
     TableSchemasOut,
 )
 from dataline.repositories.base import NotFoundError, NotUniqueError
-from dataline.utils import get_sqlite_dsn
-from models import StatusType, SuccessResponse, UpdateConnectionRequest
+from dataline.utils import generate_short_uuid, get_sqlite_dsn, is_valid_sqlite_file
+from models import SuccessListResponse, SuccessResponse, UpdateConnectionRequest
 from services import SchemaService
 
 logger = logging.getLogger(__name__)
