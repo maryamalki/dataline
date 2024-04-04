@@ -1,5 +1,5 @@
 import base64
-import os
+import random
 
 from fastapi import UploadFile
 
@@ -24,4 +24,7 @@ def is_valid_sqlite_file(file: UploadFile) -> bool:
 
 def generate_short_uuid() -> str:
     # Unique enough given the purpose of storing limited data files
-    return base64.b64encode(os.urandom(32))[:8].decode()
+    # Make sure only alphanumeric characters are used
+    chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    sample = random.sample(chars, 8)
+    return base64.b64encode("".join(sample).encode()).decode()[:8]

@@ -11,7 +11,7 @@ class Config(BaseSettings):
     sqlite_echo: bool = False
 
     # This is where all uploaded files are stored (ex. uploaded sqlite DBs)
-    data_directory: str = str(Path(__file__).parent)
+    data_directory: str = str(Path(__file__).parent / "data")
 
     sample_dvdrental_path: str = str(Path(__file__).parent / "samples" / "dvd_rental.sqlite3")
     sample_netflix_path: str = str(Path(__file__).parent / "samples" / "netflix.sqlite3")

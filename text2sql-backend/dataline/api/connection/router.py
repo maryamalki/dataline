@@ -110,10 +110,13 @@ async def connect_db(req: ConnectRequest) -> SuccessResponse[ConnectionOut]:
 
 
 @router.post("/connect/file")
-async def connect_db_from_file(name: str, file: UploadFile) -> SuccessResponse[ConnectionOut]:
+async def connect_db_from_file(file: UploadFile, name: str = Body(...)) -> SuccessResponse[ConnectionOut]:
     # Validate file type - currently only sqlite supported
     if not is_valid_sqlite_file(file):
         raise HTTPException(status_code=400, detail="File provided must be a valid SQLite file.")
+
+    # Create data directory if not exists
+    Path(config.data_directory).mkdir(parents=True, exist_ok=True)
 
     # Store file in data directory
     generated_name = generate_short_uuid() + ".sqlite"
